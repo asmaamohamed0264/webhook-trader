@@ -46,6 +46,6 @@ def get_accounts() -> dict[str, AlpacaCreds]:
     return accounts
 
 
-def get_account(name: str) -> AlpacaCreds:
+def get_account(name: str) -> AlpacaCreds | None:
     '''Returns the AlpacaCreds object for the given name.'''
-    return get_accounts()[name]
+    return get_accounts().get(name)

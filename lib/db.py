@@ -13,33 +13,37 @@ class AccountSnapshot(SQLModel, table=True):
     name: str
     cash: float
     equity: float
-    created_at: datetime = Field(default_factory=datetime.now())
+    created_at: datetime = Field(default_factory=datetime.now)
 
 
 class Order(SQLModel, table=True):
     '''Order model for the database. Doubles as the request model for the webhook endpoint.'''
     id: Optional[int] = Field(default=None, primary_key=True)
-    nickname: str
+    nickname: Optional[str] = Field(nullable=True, default=None)
     ticker: str
     action: str  # buy, sell
     price: float
     market_position: str  # long, short, flat
-    prev_market_position: str  # long, short, flat
+    prev_market_position: Optional[str] = Field(
+        nullable=True, default=None)  # long, short, flat
     interval: str
     leveraged: bool
     buying_power_pct: float  # percentage of buying power to use
-    high: float = Field(nullable=True, default=None)
-    low: float = Field(nullable=True, default=None)
-    close: float = Field(nullable=True, default=None)
-    open: float = Field(nullable=True, default=None)
-    volume: int = Field(nullable=True, default=None)
-    time: str = Field(nullable=True, default=None)
+    sl: Optional[float] = Field(nullable=True, default=None)
+    tp: Optional[float] = Field(nullable=True, default=None)
+    trailing_stop: Optional[float] = Field(nullable=True, default=None)
+    high: Optional[float] = Field(nullable=True, default=None)
+    low: Optional[float] = Field(nullable=True, default=None)
+    close: Optional[float] = Field(nullable=True, default=None)
+    open: Optional[float] = Field(nullable=True, default=None)
+    volume: Optional[int] = Field(nullable=True, default=None)
+    time: Optional[str] = Field(nullable=True, default=None)
     comment: Optional[str] = Field(nullable=True, default=None)
     alert_message: Optional[str] = Field(nullable=True, default=None)
     asset_class: Optional[str] = Field(nullable=False, default="stock")
     order_id: Optional[str] = Field(
         nullable=True, default=None)  # order ID from Alpaca
-    created_at: datetime = Field(default_factory=datetime.now())
+    created_at: Optional[datetime] = Field(default_factory=datetime.now)
 
 
 connect_args = {"check_same_thread": False}

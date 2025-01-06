@@ -52,6 +52,16 @@ def get_account_snapshots():
         session.commit()
 
 
+@app.get('/account/{name}')
+async def get_account(name: str):
+    client = get_trading_client(name)
+    if not client:
+        # return a 404
+        return JSONResponse(content={"error": "Account not found"}, status_code=404)
+    account = client.get_account()
+    return account
+
+
 @app.get("/snapshots", response_model=list[AccountSnapshot])
 async def get_snapshots(session: SessionDep):
     # Get the last 12 snapshots for each account
@@ -62,12 +72,14 @@ async def get_snapshots(session: SessionDep):
     return snapshots
 
 
-@app.post("/webhook")
-async def webhook(order: Order, session: SessionDep, req: Request):
+@app.post("/webhook/{name}")
+async def webhook(name: str, order: Order, session: SessionDep, req: Request):
     # first, check if the IP is in the whitelist
     ip = get_client_ip(req)
     if ip not in IP_WHITELIST:
         return JSONResponse(content={"error": "IP not in whitelist"}, status_code=403)
+    if not order.nickname:
+        order.nickname = name
     # log the order
     session.add(order)
     session.commit()
@@ -76,7 +88,7 @@ async def webhook(order: Order, session: SessionDep, req: Request):
         return order
 
     # otherwise, we need to forward to alpaca and add the order ID to the order
-    client = get_trading_client(order.nickname)
+    client = get_trading_client(name)
     # the webhooks should only fire if we're in extended hours or the market is open
     # so we don't need to check if we can trade
     # we do need to check if we're in extended hours, as the order type will be different
@@ -86,7 +98,7 @@ async def webhook(order: Order, session: SessionDep, req: Request):
     # if we don't hold the position, simply long or short the position
     if not position:
         new_order = exec_trade(client, order, extended_hours)
-        order.order_id = new_order.id
+        order.order_id = str(new_order.id)
         session.commit()
         return order
     else:
@@ -98,6 +110,6 @@ async def webhook(order: Order, session: SessionDep, req: Request):
         close_position(client, order.ticker, wait_for_fill=True)
         # once the existing position is closed, we can open a new one
         new_order = exec_trade(client, order, extended_hours)
-        order.order_id = new_order.id
+        order.order_id = str(new_order.id)
         session.commit()
         return order

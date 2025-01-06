@@ -1,10 +1,11 @@
 import time
+import math
 
 from fastapi import Request
 from alpaca.trading import Position, Order as AlpacaOrder
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderSide, TimeInForce, OrderStatus
-from alpaca.trading.requests import LimitOrderRequest, MarketOrderRequest, ClosePositionRequest
+from alpaca.trading.requests import StopLimitOrderRequest, LimitOrderRequest, MarketOrderRequest, ClosePositionRequest
 
 from lib.db import Order
 from lib.env_vars import get_accounts, get_account
@@ -45,8 +46,10 @@ def get_trading_clients() -> dict[str, TradingClient]:
     return clients
 
 
-def get_trading_client(name: str) -> TradingClient:
+def get_trading_client(name: str) -> TradingClient | None:
     creds = get_account(name)
+    if not creds:
+        return None
     return TradingClient(creds.api_key, creds.api_secret, paper=creds.paper)
 
 
@@ -58,7 +61,7 @@ def is_extended_hours(client: TradingClient) -> bool:
 
     # check if the time is before 8pm or after 4am
     current_time = clock.timestamp
-    return current_time.hour < 20 or current_time.hour >= 4
+    return current_time.hour < 20 and current_time.hour >= 4
 
 
 def can_trade(client: TradingClient) -> bool:
@@ -86,14 +89,34 @@ def exec_trade(client: TradingClient, order: Order, extended_hours: bool = False
     order_req = MarketOrderRequest(
         symbol=order.ticker,
         notional=notional,
-        time_in_force=TimeInForce.DAY,
+        time_in_force=TimeInForce.DAY if not order.asset_class == "crypto" else TimeInForce.GTC,
         side=OrderSide.BUY if order.action == "buy" else OrderSide.SELL,
     )
 
-    if extended_hours:
+    # need to finish the logic for sl, tp, and trailing_sl
+    # if we only have sl, we need to use a stop limit order
+    # if we only have tp, we need to use a limit order
+    # if we have both, we need to use a bracket order
+    # if we have a trailing_sl, we need to use a trailing stop order
+    # if we're in extended hours and we're not crypto, we can't do any of these so we need to throw an error
+    # if not extended_hours:
+    #     if order.sl and not order.tp:
+    #         order_req = LimitOrderRequest(
+    #             symbol=order.ticker,
+    #             qty=math.floor(notional / order.price),
+    #             time_in_force=TimeInForce.DAY,
+    #             side=OrderSide.SELL if order.action == "buy" else OrderSide.BUY,
+    #             limit_price=order.sl,
+    #         )
+
+    if extended_hours and order.asset_class != "crypto":
+        qty = math.floor(notional / order.price)
+        if qty < 1:
+            raise Exception(
+                "Limit orders must have a integer quantity greater than 0.")
         order_req = LimitOrderRequest(
             symbol=order.ticker,
-            qty=round(notional / order.price, 0),
+            qty=qty,
             time_in_force=TimeInForce.DAY,
             side=OrderSide.BUY if order.action == "buy" else OrderSide.SELL,
             limit_price=order.high,
