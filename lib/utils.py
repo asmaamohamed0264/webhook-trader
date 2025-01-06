@@ -4,9 +4,10 @@ import math
 from fastapi import Request
 from alpaca.trading import Position, Order as AlpacaOrder
 from alpaca.trading.client import TradingClient
-from alpaca.trading.enums import OrderSide, TimeInForce, OrderStatus
-from alpaca.trading.requests import StopLimitOrderRequest, LimitOrderRequest, MarketOrderRequest, ClosePositionRequest
-
+from alpaca.trading.enums import (
+    OrderSide, TimeInForce, OrderStatus, OrderClass)
+from alpaca.trading.requests import (
+    StopLimitOrderRequest, LimitOrderRequest, MarketOrderRequest, ClosePositionRequest, TakeProfitRequest, StopLossRequest, TrailingStopOrderRequest)
 from lib.db import Order
 from lib.env_vars import get_accounts, get_account
 
@@ -99,15 +100,53 @@ def exec_trade(client: TradingClient, order: Order, extended_hours: bool = False
     # if we have both, we need to use a bracket order
     # if we have a trailing_sl, we need to use a trailing stop order
     # if we're in extended hours and we're not crypto, we can't do any of these so we need to throw an error
-    # if not extended_hours:
-    #     if order.sl and not order.tp:
-    #         order_req = LimitOrderRequest(
-    #             symbol=order.ticker,
-    #             qty=math.floor(notional / order.price),
-    #             time_in_force=TimeInForce.DAY,
-    #             side=OrderSide.SELL if order.action == "buy" else OrderSide.BUY,
-    #             limit_price=order.sl,
-    #         )
+    # TODO properly test this logic
+    if not extended_hours or order.asset_class == "crypto":
+        if order.sl and not order.tp:
+            stop_price = order.price * (1 - order.sl)
+            order_req = StopLimitOrderRequest(
+                symbol=order.ticker,
+                qty=math.floor(notional / order.price),
+                time_in_force=TimeInForce.DAY,
+                side=OrderSide.BUY if order.action == "buy" else OrderSide.BUY,
+                stop_price=round(stop_price, 2)
+            )
+        elif order.tp and not order.sl:
+            limit_price = order.price * (1 + order.tp)
+            order_req = LimitOrderRequest(
+                symbol=order.ticker,
+                qty=math.floor(notional / order.price),
+                time_in_force=TimeInForce.GTC,
+                side=OrderSide.BUY if order.action == "buy" else OrderSide.BUY,
+                limit_price=round(limit_price, 2)
+            )
+        elif order.tp and order.sl:
+            # its a market order with stop loss and take profit embedded in the order
+            stop_price = round(order.price * (1 - order.sl), 2)
+            limit_price = round(order.price * (1 + order.tp), 2)
+            stop_loss = StopLossRequest(stop_price=stop_price)
+            take_profit = TakeProfitRequest(limit_price=limit_price)
+            order_req = MarketOrderRequest(
+                symbol=order.ticker,
+                notional=notional,
+                time_in_force=TimeInForce.GTC,
+                side=OrderSide.BUY if order.action == "buy" else OrderSide.SELL,
+                stop_loss=stop_loss,
+                take_profit=take_profit,
+                order_class=OrderClass.BRACKET
+            )
+
+        if order.trailing_stop:
+            # to keep the trailing stop consistent, its expressed as a decimal of the current price
+            # however it needs to be a percentage value, so we should multiply by 100
+            trail_percent = order.trailing_stop * 100
+            order_req = TrailingStopOrderRequest(
+                symbol=order.ticker,
+                notional=notional,
+                time_in_force=TimeInForce.GTC,
+                side=OrderSide.BUY if order.action == "buy" else OrderSide.SELL,
+                trail_percent=trail_percent
+            )
 
     if extended_hours and order.asset_class != "crypto":
         qty = math.floor(notional / order.price)
