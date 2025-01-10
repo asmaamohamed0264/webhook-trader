@@ -29,6 +29,7 @@ class Order(SQLModel, table=True):
     interval: str
     leveraged: bool
     buying_power_pct: float  # percentage of buying power to use
+    max_slippage: Optional[float] = Field(default=0)
     sl: Optional[float] = Field(nullable=True, default=None)
     tp: Optional[float] = Field(nullable=True, default=None)
     trailing_stop: Optional[float] = Field(nullable=True, default=None)

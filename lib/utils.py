@@ -102,25 +102,25 @@ def exec_trade(client: TradingClient, order: Order, extended_hours: bool = False
     # if we're in extended hours and we're not crypto, we can't do any of these so we need to throw an error
     # TODO properly test this logic
     if not extended_hours or order.asset_class == "crypto":
-        if order.sl and not order.tp:
-            stop_price = order.price * (1 - order.sl)
-            order_req = StopLimitOrderRequest(
-                symbol=order.ticker,
-                qty=math.floor(notional / order.price),
-                time_in_force=TimeInForce.DAY,
-                side=OrderSide.BUY if order.action == "buy" else OrderSide.BUY,
-                stop_price=round(stop_price, 2)
-            )
-        elif order.tp and not order.sl:
-            limit_price = order.price * (1 + order.tp)
-            order_req = LimitOrderRequest(
-                symbol=order.ticker,
-                qty=math.floor(notional / order.price),
-                time_in_force=TimeInForce.GTC,
-                side=OrderSide.BUY if order.action == "buy" else OrderSide.BUY,
-                limit_price=round(limit_price, 2)
-            )
-        elif order.tp and order.sl:
+        # if order.sl and not order.tp:
+        #     stop_price = order.price * (1 - order.sl)
+        #     order_req = StopLimitOrderRequest(
+        #         symbol=order.ticker,
+        #         qty=math.floor(notional / order.price),
+        #         time_in_force=TimeInForce.DAY,
+        #         side=OrderSide.BUY if order.action == "buy" else OrderSide.BUY,
+        #         stop_price=round(stop_price, 2)
+        #     )
+        # elif order.tp and not order.sl:
+        #     limit_price = order.price * (1 + order.tp)
+        #     order_req = LimitOrderRequest(
+        #         symbol=order.ticker,
+        #         qty=math.floor(notional / order.price),
+        #         time_in_force=TimeInForce.GTC,
+        #         side=OrderSide.BUY if order.action == "buy" else OrderSide.BUY,
+        #         limit_price=round(limit_price, 2)
+        #     )
+        if order.tp and order.sl:
             # its a market order with stop loss and take profit embedded in the order
             stop_price = round(order.price * (1 - order.sl), 2)
             limit_price = round(order.price * (1 + order.tp), 2)
@@ -134,18 +134,6 @@ def exec_trade(client: TradingClient, order: Order, extended_hours: bool = False
                 stop_loss=stop_loss,
                 take_profit=take_profit,
                 order_class=OrderClass.BRACKET
-            )
-
-        if order.trailing_stop:
-            # to keep the trailing stop consistent, its expressed as a decimal of the current price
-            # however it needs to be a percentage value, so we should multiply by 100
-            trail_percent = order.trailing_stop * 100
-            order_req = TrailingStopOrderRequest(
-                symbol=order.ticker,
-                notional=notional,
-                time_in_force=TimeInForce.GTC,
-                side=OrderSide.BUY if order.action == "buy" else OrderSide.SELL,
-                trail_percent=trail_percent
             )
 
     if extended_hours and order.asset_class != "crypto":

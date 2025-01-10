@@ -80,6 +80,8 @@ async def webhook(name: str, order: Order, session: SessionDep, req: Request):
         return JSONResponse(content={"error": "IP not in whitelist"}, status_code=403)
     if not order.nickname:
         order.nickname = name
+    if not order.max_slippage:
+        order.max_slippage = 0
     # log the order
     session.add(order)
     session.commit()
@@ -93,6 +95,13 @@ async def webhook(name: str, order: Order, session: SessionDep, req: Request):
     # so we don't need to check if we can trade
     # we do need to check if we're in extended hours, as the order type will be different
     extended_hours = is_extended_hours(client)
+
+    # check if we've hit 3 day trades with equity under $25k
+    # this is needed because we can always buy, but selling gets restricted if we hit the limit
+    # so we should prevent the order from going through so that we're not in a position where we can't sell
+    account = client.get_account()
+    if account.daytrade_count >= 3 and float(account.equity) < 25_000:
+        return JSONResponse(content={"error": "Pattern day trader"}, status_code=429)
 
     position = get_current_position(client, order.ticker)
     # if we don't hold the position, simply long or short the position
