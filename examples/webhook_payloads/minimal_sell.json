@@ -1,0 +1,10 @@
+{
+  "ticker": "SOXL",
+  "nickname": "paper1",
+  "action": "sell",
+  "price": 40.34,
+  "market_position": "long",
+  "interval": "5",
+  "leveraged": true,
+  "buying_power_pct": 0.5
+}

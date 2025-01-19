@@ -1,18 +1,26 @@
 import time
 import math
+import random
+from typing import Literal
 
 from fastapi import Request
+from alpaca.data import Quote
+from alpaca.data.historical import StockHistoricalDataClient, CryptoHistoricalDataClient
+from alpaca.data.requests import StockLatestQuoteRequest, CryptoLatestQuoteRequest
 from alpaca.trading import Position, Order as AlpacaOrder
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import (
     OrderSide, TimeInForce, OrderStatus, OrderClass)
 from alpaca.trading.requests import (
     StopLimitOrderRequest, LimitOrderRequest, MarketOrderRequest, ClosePositionRequest, TakeProfitRequest, StopLossRequest, TrailingStopOrderRequest)
+
 from lib.db import Order
 from lib.env_vars import get_accounts, get_account
 
 FINISHED_STATUSES = [OrderStatus.FILLED, OrderStatus.CANCELED,
                      OrderStatus.EXPIRED, OrderStatus.DONE_FOR_DAY]
+
+MAX_WAIT = 30.0
 
 
 def get_client_ip(request: Request):
@@ -28,6 +36,7 @@ def get_client_ip(request: Request):
         'Forwarded-For',
         'Forwarded',
         'X-Forwarded-Host',
+        'Fly-Client-IP'
     ]
     for header in headers:
         ip = request.headers.get(header)
@@ -101,25 +110,7 @@ def exec_trade(client: TradingClient, order: Order, extended_hours: bool = False
     # if we have a trailing_sl, we need to use a trailing stop order
     # if we're in extended hours and we're not crypto, we can't do any of these so we need to throw an error
     # TODO properly test this logic
-    if not extended_hours or order.asset_class == "crypto":
-        # if order.sl and not order.tp:
-        #     stop_price = order.price * (1 - order.sl)
-        #     order_req = StopLimitOrderRequest(
-        #         symbol=order.ticker,
-        #         qty=math.floor(notional / order.price),
-        #         time_in_force=TimeInForce.DAY,
-        #         side=OrderSide.BUY if order.action == "buy" else OrderSide.BUY,
-        #         stop_price=round(stop_price, 2)
-        #     )
-        # elif order.tp and not order.sl:
-        #     limit_price = order.price * (1 + order.tp)
-        #     order_req = LimitOrderRequest(
-        #         symbol=order.ticker,
-        #         qty=math.floor(notional / order.price),
-        #         time_in_force=TimeInForce.GTC,
-        #         side=OrderSide.BUY if order.action == "buy" else OrderSide.BUY,
-        #         limit_price=round(limit_price, 2)
-        #     )
+    if not extended_hours:
         if order.tp and order.sl:
             # its a market order with stop loss and take profit embedded in the order
             stop_price = round(order.price * (1 - order.sl), 2)
@@ -154,10 +145,13 @@ def exec_trade(client: TradingClient, order: Order, extended_hours: bool = False
 
     alpaca_order = client.submit_order(order_req)
 
+    start = time.time()
     while alpaca_order.status not in FINISHED_STATUSES:
         if alpaca_order.status != OrderStatus.NEW:
             time.sleep(0.25)
         alpaca_order = client.get_order_by_id(alpaca_order.id)
+        if time.time() - start >= MAX_WAIT:
+            break
 
     return alpaca_order
 
@@ -178,10 +172,32 @@ def close_position(client: TradingClient, ticker: str, percentage: float = 100.0
             percentage=percentage
         ))
         if wait_for_fill:
+            start = time.time()
             while position.status not in FINISHED_STATUSES:
                 if position.status != OrderStatus.NEW:
                     time.sleep(0.25)
                 position = client.get_order_by_id(position.id)
+                if time.time() - start >= MAX_WAIT:
+                    break
     except Exception as e:
         pass
     return position
+
+
+def get_latest_quote(ticker: str, asset_class: Literal["stock", "crypto"] = "stock") -> Quote:
+    '''Returns the latest quote for the given ticker. If the asset class is crypto, it will use the CryptoHistoricalDataClient, otherwise it will use the StockHistoricalDataClient.'''
+    accounts = list(get_accounts().values())
+    random_account = random.choice(accounts)
+
+    if asset_class == "crypto":
+        client = CryptoHistoricalDataClient(
+            random_account.api_key, random_account.api_secret, paper=random_account.paper)
+        resp = client.get_crypto_latest_quote(
+            CryptoLatestQuoteRequest(symbol_or_symbols=ticker))
+        return resp[ticker]
+
+    client = StockHistoricalDataClient(
+        random_account.api_key, random_account.api_secret, paper=random_account.paper)
+    resp = client.get_stock_latest_quote(
+        StockLatestQuoteRequest(symbol_or_symbols=ticker))
+    return resp[ticker]

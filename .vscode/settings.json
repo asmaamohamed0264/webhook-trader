@@ -2,5 +2,15 @@
   "editor.tabSize": 4,
   "python.languageServer": "Pylance",
   "editor.formatOnSave": true,
-  "editor.defaultFormatter": "ms-python.autopep8"
+  "editor.defaultFormatter": "ms-python.autopep8",
+  "[json]": {
+    "editor.quickSuggestions": {
+      "strings": true
+    },
+    "editor.suggest.insertMode": "replace",
+   "editor.tabSize": 2
+  },
+  "[jsonc]": {
+    "editor.tabSize": 2
+  }
 }
