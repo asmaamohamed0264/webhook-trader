@@ -3,8 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Depends, Request, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from rich.json import JSON
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlmodel import Session, select
 
 from lib.constants import ORIGINS, WHITELIST as IP_WHITELIST
@@ -52,6 +51,11 @@ def background_snapshot(session: Session, exclude: list[str] = []):
     session.commit()
 
 
+@app.get('/')
+def root():
+    return RedirectResponse(url="/docs", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+
+
 @app.get('/account/{name}')
 async def get_account(name: str):
     client = get_trading_client(name)
@@ -64,6 +68,8 @@ async def get_account(name: str):
 
 @app.get("/snapshots", response_model=list[AccountSnapshot])
 async def get_snapshots(session: SessionDep):
+    # first get snapshots for all accounts
+    background_snapshot(session=session)
     # Get the last 12 snapshots for each account
     limit = 12 * len(get_accounts())
     statement = select(AccountSnapshot).order_by(

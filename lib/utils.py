@@ -136,11 +136,12 @@ def exec_trade(client: TradingClient, order: Order, extended_hours: bool = False
             raise Exception(
                 "Limit orders must have a integer quantity greater than 0.")
         order_req = LimitOrderRequest(
+            extended_hours=True,
             symbol=order.ticker,
             qty=qty,
             time_in_force=TimeInForce.DAY,
             side=OrderSide.BUY if order.action == "buy" else OrderSide.SELL,
-            limit_price=order.high,
+            limit_price=order.high or order.price,
         )
 
     if not wait_for_fill:
