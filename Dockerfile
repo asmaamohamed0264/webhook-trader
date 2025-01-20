@@ -1,5 +1,9 @@
 # Use the official Python 3.12 image as the base image
-FROM python:3.12
+FROM python:3.12-slim-bookworm
+
+# install the required dependencies
+RUN apt-get update && apt-get install -y libpq-dev gcc && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory
 WORKDIR /app

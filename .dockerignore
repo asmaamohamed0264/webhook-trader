@@ -11,5 +11,8 @@ wheels/
 .env
 
 trader.db
+.env.example
+examples
+.vscode
 data
 .env.fly

@@ -23,7 +23,7 @@ FINISHED_STATUSES = [OrderStatus.FILLED, OrderStatus.CANCELED,
 MAX_WAIT = 30.0
 
 
-def get_client_ip(request: Request):
+def get_client_ip(request: Request) -> str | list[str]:
     '''Checks for the real client IP address in the request headers from a number of common sources.'''
     headers = [
         'X-Real-IP',
@@ -40,6 +40,9 @@ def get_client_ip(request: Request):
     ]
     for header in headers:
         ip = request.headers.get(header)
+        # if there is a comma in the header, it is a list of IPs
+        if ip and ',' in ip:
+            return [x.strip() for x in ip.split(',')]
         if ip:
             return ip
 

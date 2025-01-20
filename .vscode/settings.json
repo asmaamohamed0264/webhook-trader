@@ -12,5 +12,8 @@
   },
   "[jsonc]": {
     "editor.tabSize": 2
+  },
+  "[just]": {
+    "editor.tabSize": 2
   }
 }

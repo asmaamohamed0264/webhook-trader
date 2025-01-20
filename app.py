@@ -1,16 +1,17 @@
 from typing import Annotated
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Depends, Request, status
+from fastapi import FastAPI, Depends, Request, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from rich.json import JSON
 from sqlmodel import Session, select
 
 from lib.constants import ORIGINS, WHITELIST as IP_WHITELIST
 from lib.db import get_session, create_db_and_tables, AccountSnapshot, Order
 from lib.env_vars import get_accounts, TEST_MODE
 from lib.utils import (exec_trade, get_client_ip, get_current_position, close_position, get_latest_quote,
-                       get_trading_client, is_extended_hours)
+                       get_trading_client, is_extended_hours, get_trading_clients)
 
 
 SessionDep = Annotated[Session, Depends(get_session)]
@@ -35,6 +36,22 @@ app.add_middleware(
 )
 
 
+def background_snapshot(session: Session, exclude: list[str] = []):
+    clients = get_trading_clients()
+    for name, client in clients.items():
+        if name in exclude:
+            continue
+        account = client.get_account()
+        snapshot = AccountSnapshot(
+            account_id=str(account.id),
+            name=name,
+            cash=float(account.cash),
+            equity=float(account.equity),
+        )
+        session.add(snapshot)
+    session.commit()
+
+
 @app.get('/account/{name}')
 async def get_account(name: str):
     client = get_trading_client(name)
@@ -52,11 +69,12 @@ async def get_snapshots(session: SessionDep):
     statement = select(AccountSnapshot).order_by(
         AccountSnapshot.created_at.desc()).limit(limit)
     snapshots = session.exec(statement).all()
+
     return snapshots
 
 
 @app.get("/snapshot/{name}", response_model=AccountSnapshot)
-async def get_snapshot(name: str, session: SessionDep):
+async def get_snapshot(name: str, session: SessionDep, background_task: BackgroundTasks):
     # create and return a snapshot for the account
     # save the new snapshot to the database
     client = get_trading_client(name)
@@ -70,15 +88,21 @@ async def get_snapshot(name: str, session: SessionDep):
     session.add(snapshot)
     session.commit()
     session.refresh(snapshot)
+    background_task.add_task(
+        background_snapshot, session=session, exclude=[name])
     return snapshot
 
 
 @app.post("/webhook/{name}")
-async def webhook(name: str, order: Order, session: SessionDep, req: Request):
+async def webhook(name: str, order: Order, session: SessionDep, req: Request, background_task: BackgroundTasks):
     # first, check if the IP is in the whitelist
     ip = get_client_ip(req)
-    if ip not in IP_WHITELIST:
-        return JSONResponse(content={"error": "IP not in whitelist"}, status_code=status.HTTP_401_UNAUTHORIZED)
+
+    if type(ip) is str and ip not in IP_WHITELIST:
+        return JSONResponse(content={"error": f"IP '{ip}' not in whitelist"}, status_code=status.HTTP_401_UNAUTHORIZED)
+    elif type(ip) is list and all(x not in IP_WHITELIST for x in ip):
+        return JSONResponse(content={"error": f"IPs '{ip}' not in whitelist"}, status_code=status.HTTP_401_UNAUTHORIZED)
+
     if not order.nickname:
         order.nickname = name
     if not order.max_slippage:
@@ -123,10 +147,12 @@ async def webhook(name: str, order: Order, session: SessionDep, req: Request):
         order.order_id = str(new_order.id)
         session.commit()
         session.refresh(order)
+        background_task.add_task(background_snapshot, session=session)
         return order
     else:
         # if the position is flat, or the same as what we already have, we're done
         if position.side == order.market_position or order.market_position == "flat":
+            background_task.add_task(background_snapshot, session=session)
             return order
 
         # at this point, we have to close the position and open a new one regardless of the market position
@@ -136,6 +162,7 @@ async def webhook(name: str, order: Order, session: SessionDep, req: Request):
         order.order_id = str(new_order.id)
         session.commit()
         session.refresh(order)
+        background_task.add_task(background_snapshot, session=session)
         return order
 
 if __name__ == "__main__":

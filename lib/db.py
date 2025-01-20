@@ -47,7 +47,7 @@ class Order(SQLModel, table=True):
     created_at: Optional[datetime] = Field(default_factory=datetime.now)
 
 
-connect_args = {"check_same_thread": False}
+connect_args = {"check_same_thread": False} if DB_URI.startswith('sqlite') else {}
 engine = create_engine(DB_URI, echo=DB_ECHO, connect_args=connect_args)
 
 

@@ -21,7 +21,7 @@ ALPACA_API_KEYS = os.getenv("ALPACA_API_KEYS").split(",")
 ALPACA_API_SECRETS = os.getenv("ALPACA_API_SECRETS").split(",")
 ALPACA_NAMES = os.getenv("ALPACA_NAMES").split(",")
 ALPACA_PAPER = [int(x) for x in os.getenv("ALPACA_PAPER").split(",")]
-IP_WHITELIST = os.getenv("IP_WHITELIST", "").split(",")
+IP_WHITELIST = [x.strip() for x in os.getenv("IP_WHITELIST", "").split(",")]
 
 # remove any trailing empty strings
 ALPACA_API_KEYS = [x for x in ALPACA_API_KEYS if x]
