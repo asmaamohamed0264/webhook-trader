@@ -131,7 +131,7 @@ I should write a more in-depth guide on how to deploy to Fly.io, but for now you
 
 ## Usage
 
-Coming Soon :tm:!
+More detailed guide coming soon:tm:, however for now you can navigate to `http://localhost:8000/docs` to see the OpenAPI documentation, as well as check out the [examples](examples/webhook_payloads) folder for some example TradingView webhook payloads.
 
 ## License
 
