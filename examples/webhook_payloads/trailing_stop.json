@@ -1,0 +1,10 @@
+{
+  "ticker": "COIN",
+  "action": "buy",
+  "price": 301.97,
+  "market_position": "long",
+  "interval": "5",
+  "leveraged": false,
+  "buying_power_pct": 0.05,
+  "trailing_stop": 0.01
+}

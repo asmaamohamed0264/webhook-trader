@@ -1,0 +1,10 @@
+{
+  "ticker": "NVDA",
+  "action": "buy",
+  "price": 141.49,
+  "market_position": "long",
+  "interval": "5",
+  "leveraged": false,
+  "buying_power_pct": 0.05,
+  "tp": 0.01
+}

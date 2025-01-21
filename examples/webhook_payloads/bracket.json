@@ -1,0 +1,11 @@
+{
+  "ticker": "AMD",
+  "action": "buy",
+  "price": 123.28,
+  "market_position": "long",
+  "interval": "5",
+  "leveraged": false,
+  "buying_power_pct": 0.1,
+  "sl": 0.01,
+  "tp": 0.01
+}
