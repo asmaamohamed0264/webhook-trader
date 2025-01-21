@@ -3,6 +3,7 @@ import math
 import random
 from typing import Literal
 
+from alpaca.broker import StopOrderRequest
 from fastapi import Request
 from alpaca.data import Quote
 from alpaca.data.historical import StockHistoricalDataClient, CryptoHistoricalDataClient
@@ -94,6 +95,8 @@ def exec_trade(client: TradingClient, order: Order, extended_hours: bool = False
 
     # cannot have more than 2 decimal places
     notional = round(buying_power * order.buying_power_pct, 2)
+    # if we're doing limit orders, we'll need this.
+    qty = math.floor(notional / order.price)
 
     # if the value is less than a dollar, we can't trade. Throw bad request
     if notional < 1:
@@ -106,23 +109,40 @@ def exec_trade(client: TradingClient, order: Order, extended_hours: bool = False
         side=OrderSide.BUY if order.action == "buy" else OrderSide.SELL,
     )
 
+    # if we are doing a limit order, we can't do fractional shares
+    if order.trailing_stop or order.sl or order.tp:
+        # get the quantity of shares we can buy
+        if qty < 1:
+            raise Exception(
+                "Limit orders must have a integer quantity greater than 0.")
+        # still just a standard market order, just using qty instead of notional
+        order_req = MarketOrderRequest(
+            symbol=order.ticker,
+            qty=qty,
+            time_in_force=TimeInForce.DAY if not order.asset_class == "crypto" else TimeInForce.GTC,
+            side=OrderSide.BUY if order.action == "buy" else OrderSide.SELL,
+        )
+
     # need to finish the logic for sl, tp, and trailing_sl
+    # if we have both, we need to use a bracket order
+    # However for the rest of the logic, we need to have two separate orders.
+    # First order is a standard limit or market order. Then we need to create the exit order.
+    # if we have a trailing_sl, we need to use a trailing stop order
     # if we only have sl, we need to use a stop limit order
     # if we only have tp, we need to use a limit order
-    # if we have both, we need to use a bracket order
-    # if we have a trailing_sl, we need to use a trailing stop order
-    # if we're in extended hours and we're not crypto, we can't do any of these so we need to throw an error
-    # TODO properly test this logic
+    # TODO properly implement and test this logic
     if not extended_hours:
         if order.tp and order.sl:
-            # its a market order with stop loss and take profit embedded in the order
+            if qty < 1:
+                raise Exception(
+                    "Limit orders must have a integer quantity greater than 0.")
             stop_price = round(order.price * (1 - order.sl), 2)
             limit_price = round(order.price * (1 + order.tp), 2)
             stop_loss = StopLossRequest(stop_price=stop_price)
             take_profit = TakeProfitRequest(limit_price=limit_price)
             order_req = MarketOrderRequest(
                 symbol=order.ticker,
-                notional=notional,
+                qty=qty,
                 time_in_force=TimeInForce.GTC,
                 side=OrderSide.BUY if order.action == "buy" else OrderSide.SELL,
                 stop_loss=stop_loss,
@@ -143,6 +163,89 @@ def exec_trade(client: TradingClient, order: Order, extended_hours: bool = False
             side=OrderSide.BUY if order.action == "buy" else OrderSide.SELL,
             limit_price=order.high or order.price,
         )
+
+    # if we have a stop loss, take profit, or trailing stop, we need to create a separate order
+    # However this shouldn't execute if the order request is a bracket order or its a sell order
+    if order_req.order_class != OrderClass.BRACKET and order.action == "buy":
+        # if there is an error in here, liquidate the newly opened position
+        # and raise the error
+        try:
+            if order.sl or order.tp or order.trailing_stop:
+                # first we need to create the initial order and wait for it to fill
+                alpaca_order = client.submit_order(order_req)
+                start = time.time()
+                while alpaca_order.status not in FINISHED_STATUSES:
+                    if alpaca_order.status != OrderStatus.NEW:
+                        time.sleep(0.25)
+                    alpaca_order = client.get_order_by_id(alpaca_order.id)
+                    if time.time() - start >= MAX_WAIT:
+                        break
+                # if the order is not filled, we need to cancel it and return
+                if alpaca_order.status != OrderStatus.FILLED:
+                    client.cancel_order_by_id(alpaca_order.id)
+                    alpaca_order.status = OrderStatus.CANCELED
+                    return alpaca_order
+
+                # now is the logic for the rest of the orders
+                # we will overwrite the order_req with the new order and let the logic continue
+                # we'll start with the stop loss
+                if order.sl:
+                    stop_price = round(
+                        float(alpaca_order.filled_avg_price) * (1 - order.sl), 2)
+                    order_req = StopOrderRequest(
+                        symbol=alpaca_order.symbol,
+                        qty=alpaca_order.filled_qty,
+                        time_in_force=TimeInForce.GTC,
+                        side=OrderSide.SELL,
+                        stop_price=stop_price,
+                    )
+                elif order.tp:
+                    limit_price = round(
+                        float(alpaca_order.filled_avg_price) * (1 + order.tp), 2)
+                    stop_price = round(
+                        float(alpaca_order.filled_avg_price) * (1 - order.tp), 2)
+                    order_req = StopLimitOrderRequest(
+                        symbol=alpaca_order.symbol,
+                        qty=alpaca_order.filled_qty,
+                        time_in_force=TimeInForce.GTC,
+                        side=OrderSide.SELL,
+                        limit_price=limit_price,
+                        stop_price=stop_price
+                    )
+                elif order.trailing_stop:
+                    order_req = TrailingStopOrderRequest(
+                        symbol=alpaca_order.symbol,
+                        qty=alpaca_order.filled_qty,
+                        time_in_force=TimeInForce.GTC,
+                        side=OrderSide.SELL,
+                        # for some reason they want this as a percentage
+                        # I want all the inputs to be consistent
+                        trail_percent=order.trailing_stop * 100,
+                    )
+        except Exception as e:
+            # if we own the security, liquidate it
+            # check the order status
+            # if the order is not filled, cancel it
+            # if the order is filled, create a market sell order
+            # if the order is partially filled, cancel it and create a market sell order
+            # otherwise just raise the error
+            if alpaca_order.status == OrderStatus.FILLED:
+                client.submit_order(MarketOrderRequest(
+                    symbol=alpaca_order.symbol,
+                    qty=alpaca_order.filled_qty,
+                    time_in_force=TimeInForce.GTC,
+                    side=OrderSide.SELL,
+                ))
+            elif alpaca_order.status == OrderStatus.PARTIALLY_FILLED:
+                client.cancel_order_by_id(alpaca_order.id)
+                client.submit_order(MarketOrderRequest(
+                    symbol=alpaca_order.symbol,
+                    qty=alpaca_order.filled_qty,
+                    time_in_force=TimeInForce.GTC,
+                    side=OrderSide.SELL,
+                ))
+
+            raise e
 
     if not wait_for_fill:
         return client.submit_order(order_req)
