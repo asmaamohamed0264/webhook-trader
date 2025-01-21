@@ -14,7 +14,20 @@ default:
 	@just --list --unsorted
 
 dev:
+  #!/bin/bash
+  cd ui
+  npm run build
+  rm -rf ../public
+  cp -r dist ../public
+  cd ..
   uv run -- fastapi dev
+
+install:
+  #!/bin/bash
+  uv sync
+  cd ui
+  npm install
+  cd ..
 
 # build the docker container
 build:
@@ -35,3 +48,11 @@ run:
 
 deploy:
   flyctl deploy
+
+
+# delete all pycache files in the current and subdirectories
+# deletes public and ui/dist
+clean:
+  find . -name __pycache__ -exec rm -rf {} +
+  rm -rf public
+  rm -rf ui/dist

@@ -13,3 +13,4 @@ wheels/
 trader.db
 data
 .env.fly
+public

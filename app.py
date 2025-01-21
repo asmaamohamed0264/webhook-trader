@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, Request, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session, select
 
 from lib.constants import ORIGINS, WHITELIST as IP_WHITELIST
@@ -49,11 +50,6 @@ def background_snapshot(session: Session, exclude: list[str] = []):
         )
         session.add(snapshot)
     session.commit()
-
-
-@app.get('/')
-def root():
-    return RedirectResponse(url="/docs", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
 
 @app.get('/account/{name}')
@@ -170,6 +166,8 @@ async def webhook(name: str, order: Order, session: SessionDep, req: Request, ba
         session.refresh(order)
         background_task.add_task(background_snapshot, session=session)
         return order
+
+app.mount("/", StaticFiles(directory="public", html=True), name="public")
 
 if __name__ == "__main__":
     import uvicorn

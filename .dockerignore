@@ -16,3 +16,6 @@ examples
 .vscode
 data
 .env.fly
+ui/dist
+ui/node_modules
+public
