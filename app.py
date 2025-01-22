@@ -152,13 +152,13 @@ async def webhook(name: str, order: Order, session: SessionDep, req: Request, ba
         background_task.add_task(background_snapshot, session=session)
         return order
     else:
-        # if the position is flat, or the same as what we already have, we're done
-        if position.side == order.market_position or order.market_position == "flat":
-            background_task.add_task(background_snapshot, session=session)
-            return order
-
-        # at this point, we have to close the position and open a new one regardless of the market position
-        close_position(client, order.ticker, wait_for_fill=True)
+        if not order.pyramiding:
+            # if the position is flat, or the same as what we already have, we're done
+            if position.side == order.market_position or order.market_position == "flat":
+                background_task.add_task(background_snapshot, session=session)
+                return order
+            # at this point, we have to close the position and open a new one regardless of the market position
+            close_position(client, order.ticker, wait_for_fill=True)
         # once the existing position is closed, we can open a new one
         new_order = exec_trade(client, order, extended_hours)
         order.order_id = str(new_order.id)

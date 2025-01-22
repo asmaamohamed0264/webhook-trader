@@ -30,6 +30,7 @@ class Order(SQLModel, table=True):
     leveraged: bool
     buying_power_pct: float  # percentage of buying power to use
     max_slippage: Optional[float] = Field(default=0)
+    pyramiding: Optional[bool] = Field(default=False)
     sl: Optional[float] = Field(nullable=True, default=None)
     tp: Optional[float] = Field(nullable=True, default=None)
     trailing_stop: Optional[float] = Field(nullable=True, default=None)
@@ -47,7 +48,8 @@ class Order(SQLModel, table=True):
     created_at: Optional[datetime] = Field(default_factory=datetime.now)
 
 
-connect_args = {"check_same_thread": False} if DB_URI.startswith('sqlite') else {}
+connect_args = {"check_same_thread": False} if DB_URI.startswith('sqlite') else {
+}
 engine = create_engine(DB_URI, echo=DB_ECHO, connect_args=connect_args)
 
 
