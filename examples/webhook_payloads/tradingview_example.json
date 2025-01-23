@@ -1,0 +1,9 @@
+{
+  "ticker": "SPXL",
+  "action": "{{strategy.order.action}}",
+  "price": {{strategy.order.price}},
+  "market_position": "{{strategy.market_position}}",
+  "interval": "5",
+  "leveraged": true,
+  "buying_power_pct": 0.05,
+}
