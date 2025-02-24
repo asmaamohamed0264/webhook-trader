@@ -104,7 +104,7 @@ def exec_trade(client: TradingClient, order: Order, extended_hours: bool = False
 
     order_req = MarketOrderRequest(
         symbol=order.ticker,
-        notional=notional,
+        qty=qty,
         time_in_force=TimeInForce.DAY if not order.asset_class == "crypto" else TimeInForce.GTC,
         side=OrderSide.BUY if order.action == "buy" else OrderSide.SELL,
     )

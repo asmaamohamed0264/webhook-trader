@@ -29,6 +29,13 @@ install:
   npm install
   cd ..
 
+req example_name account_name:
+  #!/bin/bash
+  cd examples/webhook_payloads
+  echo "Sending webhook payload to http://localhost:8000/webhook/{{account_name}}"
+  curl -X POST -H "Content-Type: application/json" -d @{{example_name}}.json http://localhost:8000/webhook/{{account_name}}
+  cd ../..
+
 # build the docker container
 build:
   uv pip freeze > requirements.txt

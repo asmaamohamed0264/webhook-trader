@@ -1,0 +1,10 @@
+{
+  "ticker": "SOXL",
+  "nickname": "testing",
+  "action": "sell",
+  "price": 27.01,
+  "market_position": "short",
+  "interval": "5",
+  "leveraged": true,
+  "buying_power_pct": 0.1
+}

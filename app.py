@@ -129,8 +129,11 @@ async def webhook(name: str, order: Order, session: SessionDep, req: Request, ba
         session.refresh(order)
         return order
 
+    print(get_accounts().keys())
     # otherwise, we need to forward to alpaca and add the order ID to the order
     client = get_trading_client(name)
+    if not client:
+        return JSONResponse(content={"error": f"Account '{name}' not found"}, status_code=status.HTTP_404_NOT_FOUND)
     # the webhooks should only fire if we're in extended hours or the market is open
     # so we don't need to check if we can trade
     # we do need to check if we're in extended hours, as the order type will be different
