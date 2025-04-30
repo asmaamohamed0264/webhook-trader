@@ -27,7 +27,6 @@ MAX_WAIT = 30.0
 def get_client_ip(request: Request) -> str | list[str]:
     '''Checks for the real client IP address in the request headers from a number of common sources.'''
     headers = [
-        'X-Real-IP',
         'X-Forwarded-For',
         'CF-Connecting-IP',
         'True-Client-IP',
@@ -37,6 +36,7 @@ def get_client_ip(request: Request) -> str | list[str]:
         'Forwarded-For',
         'Forwarded',
         'X-Forwarded-Host',
+        'X-Real-IP',
         'Fly-Client-IP'
     ]
     for header in headers:
