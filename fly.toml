@@ -20,3 +20,8 @@ primary_region = 'ewr'
   memory = '1gb'
   cpu_kind = 'shared'
   cpus = 1
+
+[mounts]
+  source = "webhook-trader_data"
+  destination = "/data"
+  initial_size = "1gb"

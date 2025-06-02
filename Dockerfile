@@ -32,4 +32,4 @@ COPY --from=ui-builder /ui/dist /app/public
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Set the command to run the FastAPI server using uvicorn
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["fastapi", "run", "app.py", "--port", "8000"]
