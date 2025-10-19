@@ -277,9 +277,13 @@ async def run_fusion_pro_strategy():
         try:
             # Check if market is open (simplified check)
             now = datetime.now()
-            if 9 <= now.hour <= 16:  # Market hours (simplified)
+            # For testing, allow running outside market hours
+            if 9 <= now.hour <= 16 or os.getenv('FUSION_TEST_MODE', 'false').lower() == 'true':
                 result = await fusion_strategy.run_strategy_cycle()
                 print(f"📊 Fusion Pro cycle: {result.get('status', 'unknown')}")
+                if result.get('summary'):
+                    summary = result['summary']
+                    print(f"📊 Processed {summary.get('completed', 0)}/{summary.get('total_symbols', 0)} symbols")
             else:
                 print("📊 Fusion Pro: Market closed, skipping cycle")
             
