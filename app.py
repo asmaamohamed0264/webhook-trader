@@ -230,7 +230,7 @@ def load_config():
     
     # Load Fusion Pro configuration
     fusion_config = {
-        'symbol': os.getenv('FUSION_SYMBOL', 'ASTS'),
+        'symbols': os.getenv('FUSION_SYMBOLS', 'ASTS,AAPL'),
         'timeframe': os.getenv('FUSION_TIMEFRAME', '1D'),
         'risk_pct': float(os.getenv('FUSION_RISK_PCT', '0.5')),
         'atr_mult_sl': float(os.getenv('FUSION_ATR_MULT_SL', '1.5')),

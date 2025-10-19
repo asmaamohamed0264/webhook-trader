@@ -33,8 +33,10 @@ class FusionProStrategy:
         self.config = config
         self.fusion_config = config.get('fusion_pro_bot', {})
         
-        # Strategy parameters
-        self.symbol = self.fusion_config.get('symbol', 'ASTS')
+        # Strategy parameters - support multiple symbols
+        symbols_str = self.fusion_config.get('symbols', 'ASTS,AAPL')
+        self.symbols = [s.strip() for s in symbols_str.split(',')]
+        self.symbol = self.symbols[0]  # Primary symbol for backward compatibility
         self.timeframe = self.fusion_config.get('timeframe', '1D')
         self.risk_pct = self.fusion_config.get('risk_pct', 0.5)
         self.atr_mult_sl = self.fusion_config.get('atr_mult_sl', 1.5)
@@ -340,34 +342,76 @@ class FusionProStrategy:
             return {'status': 'error', 'reason': str(e)}
     
     async def run_strategy_cycle(self) -> Dict:
-        """Run one complete strategy cycle"""
+        """Run one complete strategy cycle for all symbols"""
         try:
-            logger.info(f"Running Fusion Pro strategy cycle for {self.symbol}")
+            logger.info(f"Running Fusion Pro strategy cycle for symbols: {', '.join(self.symbols)}")
             
-            # Fetch market data
-            df = await self.fetch_market_data(self.symbol, self.timeframe)
-            if df.empty:
-                return {'status': 'error', 'reason': 'No market data'}
+            results = []
             
-            # Calculate indicators
-            df = self.calculate_indicators(df)
-            if df.empty:
-                return {'status': 'error', 'reason': 'Failed to calculate indicators'}
+            for symbol in self.symbols:
+                try:
+                    logger.info(f"Processing {symbol}...")
+                    
+                    # Fetch market data
+                    df = await self.fetch_market_data(symbol, self.timeframe)
+                    if df.empty:
+                        results.append({
+                            'symbol': symbol,
+                            'status': 'error',
+                            'reason': 'No market data'
+                        })
+                        continue
+                    
+                    # Calculate indicators
+                    df = self.calculate_indicators(df)
+                    if df.empty:
+                        results.append({
+                            'symbol': symbol,
+                            'status': 'error',
+                            'reason': 'Failed to calculate indicators'
+                        })
+                        continue
+                    
+                    # Analyze signals
+                    signal_data = self.analyze_signals(df)
+                    signal_data['symbol'] = symbol
+                    
+                    # Execute signal if not HOLD
+                    if signal_data['signal'] != 'HOLD':
+                        execution_result = await self.execute_signal(signal_data)
+                        signal_data['execution'] = execution_result
+                        logger.info(f"{symbol}: {signal_data['signal']} signal executed")
+                    else:
+                        logger.info(f"{symbol}: HOLD signal - {signal_data['reason']}")
+                    
+                    results.append({
+                        'symbol': symbol,
+                        'status': 'completed',
+                        'signal_data': signal_data
+                    })
+                    
+                except Exception as e:
+                    logger.error(f"Failed to process {symbol}: {e}")
+                    results.append({
+                        'symbol': symbol,
+                        'status': 'error',
+                        'reason': str(e)
+                    })
             
-            # Analyze signals
-            signal_data = self.analyze_signals(df)
+            # Log summary
+            completed = [r for r in results if r['status'] == 'completed']
+            errors = [r for r in results if r['status'] == 'error']
             
-            # Execute signal if not HOLD
-            if signal_data['signal'] != 'HOLD':
-                execution_result = await self.execute_signal(signal_data)
-                signal_data['execution'] = execution_result
-            
-            # Log results
-            logger.info(f"Strategy cycle completed: {signal_data['signal']} - {signal_data['reason']}")
+            logger.info(f"Strategy cycle completed: {len(completed)} symbols processed, {len(errors)} errors")
             
             return {
                 'status': 'completed',
-                'signal_data': signal_data,
+                'results': results,
+                'summary': {
+                    'total_symbols': len(self.symbols),
+                    'completed': len(completed),
+                    'errors': len(errors)
+                },
                 'timestamp': datetime.now().isoformat()
             }
             
@@ -378,7 +422,8 @@ class FusionProStrategy:
     def get_status(self) -> Dict:
         """Get current strategy status"""
         return {
-            'symbol': self.symbol,
+            'symbols': self.symbols,
+            'primary_symbol': self.symbol,
             'timeframe': self.timeframe,
             'risk_pct': self.risk_pct,
             'account_size': self.account_size,
