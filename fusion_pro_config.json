@@ -1,0 +1,33 @@
+{
+  "fusion_pro_bot": {
+    "symbol": "ASTS",
+    "timeframe": "1D",
+    "risk_pct": 0.5,
+    "atr_mult_sl": 1.5,
+    "atr_mult_tp": 1.0,
+    "account_size": 10000,
+    "ema_fast_len": 50,
+    "ema_slow_len": 200,
+    "macd_fast": 12,
+    "macd_slow": 26,
+    "macd_signal": 9,
+    "rsi_len": 14,
+    "rsi_long_min": 50,
+    "rsi_long_max": 80,
+    "rsi_short_max": 50,
+    "rsi_short_min": 20,
+    "adx_len": 14,
+    "adx_min": 16,
+    "atr_len": 14,
+    "trail_start_rr": 0.5,
+    "trail_atr_mult": 1.2,
+    "min_atr_pct": 0.20,
+    "vol_filter_on": true,
+    "vol_sma_len": 50,
+    "vol_min_mult": 1.0,
+    "min_bars_gap": 3,
+    "max_trades_day": 10,
+    "use_cooldown": true,
+    "cooldown_bars": 10
+  }
+}

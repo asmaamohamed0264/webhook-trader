@@ -1,5 +1,9 @@
 from typing import Annotated
 from contextlib import asynccontextmanager
+import asyncio
+import json
+import os
+from datetime import datetime
 
 from fastapi import FastAPI, Depends, Request, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,17 +17,48 @@ from lib.db import get_session, create_db_and_tables, AccountSnapshot, Order
 from lib.env_vars import get_accounts, TEST_MODE
 from lib.utils import (exec_trade, get_client_ip, get_current_position, close_position, get_latest_quote,
                        get_trading_client, is_extended_hours, get_trading_clients)
+from fusion_pro import FusionProStrategy
 
 
 SessionDep = Annotated[Session, Depends(get_session)]
 
 
+# Global strategy instance
+fusion_strategy = None
+strategy_task = None
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     '''Creates a lifespan for items that should be run at startup and shutdown.
 Startup tasks should be placed before the yield, and shutdown tasks should be placed after the yield.'''
+    global fusion_strategy, strategy_task
+    
+    # Initialize database
     create_db_and_tables()
+    
+    # Initialize Fusion Pro strategy
+    try:
+        config = load_config()
+        fusion_strategy = FusionProStrategy(config)
+        
+        # Start background strategy task
+        strategy_task = asyncio.create_task(run_fusion_pro_strategy())
+        print("🚀 Fusion Pro strategy started in background")
+        
+    except Exception as e:
+        print(f"⚠️ Failed to start Fusion Pro strategy: {e}")
+        fusion_strategy = None
+    
     yield
+    
+    # Cleanup
+    if strategy_task:
+        strategy_task.cancel()
+        try:
+            await strategy_task
+        except asyncio.CancelledError:
+            pass
+        print("🛑 Fusion Pro strategy stopped")
 
 
 app = FastAPI(name="Webhook Trader", lifespan=lifespan)
@@ -182,6 +217,123 @@ async def webhook(name: str, order: Order, session: SessionDep, req: Request, ba
         background_task.add_task(background_snapshot, session=session)
         return order
 
+
+# Helper functions for Fusion Pro strategy
+def load_config():
+    """Load configuration from environment variables and config file"""
+    config = {}
+    
+    # Load from environment variables
+    config['alpaca_api_key'] = os.getenv('ALPACA_API_KEYS')
+    config['alpaca_api_secret'] = os.getenv('ALPACA_API_SECRETS')
+    config['alpaca_base_url'] = os.getenv('ALPACA_BASE_URL', 'https://paper-api.alpaca.markets')
+    
+    # Load Fusion Pro configuration
+    fusion_config = {
+        'symbol': os.getenv('FUSION_SYMBOL', 'ASTS'),
+        'timeframe': os.getenv('FUSION_TIMEFRAME', '1D'),
+        'risk_pct': float(os.getenv('FUSION_RISK_PCT', '0.5')),
+        'atr_mult_sl': float(os.getenv('FUSION_ATR_MULT_SL', '1.5')),
+        'atr_mult_tp': float(os.getenv('FUSION_ATR_MULT_TP', '1.0')),
+        'account_size': float(os.getenv('FUSION_ACCOUNT_SIZE', '10000')),
+        'ema_fast_len': int(os.getenv('FUSION_EMA_FAST', '50')),
+        'ema_slow_len': int(os.getenv('FUSION_EMA_SLOW', '200')),
+        'macd_fast': int(os.getenv('FUSION_MACD_FAST', '12')),
+        'macd_slow': int(os.getenv('FUSION_MACD_SLOW', '26')),
+        'macd_signal': int(os.getenv('FUSION_MACD_SIGNAL', '9')),
+        'rsi_len': int(os.getenv('FUSION_RSI_LEN', '14')),
+        'rsi_long_min': int(os.getenv('FUSION_RSI_LONG_MIN', '50')),
+        'rsi_long_max': int(os.getenv('FUSION_RSI_LONG_MAX', '80')),
+        'rsi_short_max': int(os.getenv('FUSION_RSI_SHORT_MAX', '50')),
+        'rsi_short_min': int(os.getenv('FUSION_RSI_SHORT_MIN', '20')),
+        'adx_len': int(os.getenv('FUSION_ADX_LEN', '14')),
+        'adx_min': int(os.getenv('FUSION_ADX_MIN', '16')),
+        'atr_len': int(os.getenv('FUSION_ATR_LEN', '14')),
+        'trail_start_rr': float(os.getenv('FUSION_TRAIL_START_RR', '0.5')),
+        'trail_atr_mult': float(os.getenv('FUSION_TRAIL_ATR_MULT', '1.2')),
+        'min_atr_pct': float(os.getenv('FUSION_MIN_ATR_PCT', '0.20')),
+        'vol_filter_on': os.getenv('FUSION_VOL_FILTER_ON', 'true').lower() == 'true',
+        'vol_sma_len': int(os.getenv('FUSION_VOL_SMA_LEN', '50')),
+        'vol_min_mult': float(os.getenv('FUSION_VOL_MIN_MULT', '1.0')),
+        'min_bars_gap': int(os.getenv('FUSION_MIN_BARS_GAP', '3')),
+        'max_trades_day': int(os.getenv('FUSION_MAX_TRADES_DAY', '10')),
+        'use_cooldown': os.getenv('FUSION_USE_COOLDOWN', 'true').lower() == 'true',
+        'cooldown_bars': int(os.getenv('FUSION_COOLDOWN_BARS', '10'))
+    }
+    
+    config['fusion_pro_bot'] = fusion_config
+    return config
+
+async def run_fusion_pro_strategy():
+    """Background task to run Fusion Pro strategy periodically"""
+    global fusion_strategy
+    
+    if not fusion_strategy:
+        print("⚠️ Fusion Pro strategy not initialized")
+        return
+    
+    # Run every 5 minutes during market hours
+    while True:
+        try:
+            # Check if market is open (simplified check)
+            now = datetime.now()
+            if 9 <= now.hour <= 16:  # Market hours (simplified)
+                result = await fusion_strategy.run_strategy_cycle()
+                print(f"📊 Fusion Pro cycle: {result.get('status', 'unknown')}")
+            else:
+                print("📊 Fusion Pro: Market closed, skipping cycle")
+            
+            # Wait 5 minutes
+            await asyncio.sleep(300)
+            
+        except asyncio.CancelledError:
+            print("🛑 Fusion Pro strategy task cancelled")
+            break
+        except Exception as e:
+            print(f"❌ Fusion Pro strategy error: {e}")
+            await asyncio.sleep(60)  # Wait 1 minute on error
+
+# Fusion Pro monitoring endpoint
+@app.get("/status/fusion_pro")
+async def get_fusion_pro_status():
+    """Get Fusion Pro strategy status"""
+    global fusion_strategy
+    
+    if not fusion_strategy:
+        return JSONResponse(
+            content={"error": "Fusion Pro strategy not initialized"},
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE
+        )
+    
+    try:
+        status_data = fusion_strategy.get_status()
+        return JSONResponse(content=status_data)
+    except Exception as e:
+        return JSONResponse(
+            content={"error": f"Failed to get status: {e}"},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+# Manual strategy trigger endpoint
+@app.post("/fusion_pro/trigger")
+async def trigger_fusion_pro():
+    """Manually trigger Fusion Pro strategy cycle"""
+    global fusion_strategy
+    
+    if not fusion_strategy:
+        return JSONResponse(
+            content={"error": "Fusion Pro strategy not initialized"},
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE
+        )
+    
+    try:
+        result = await fusion_strategy.run_strategy_cycle()
+        return JSONResponse(content=result)
+    except Exception as e:
+        return JSONResponse(
+            content={"error": f"Strategy execution failed: {e}"},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
 app.mount("/", StaticFiles(directory="public", html=True), name="public")
 
