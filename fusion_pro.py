@@ -344,7 +344,7 @@ class FusionProStrategy:
             
             # Volume indicators
             if self.vol_filter_on:
-                df['vol_sma'] = ta.volume.VolumeSMAIndicator(df['close'], df['volume'], window=self.vol_sma_len).volume_sma()
+                df['vol_sma'] = ta.volume.VolumeSMAIndicator(df['volume'], window=self.vol_sma_len).volume_sma()
             
             return df
             
@@ -448,12 +448,12 @@ class FusionProStrategy:
                 'price': float(latest['close']),
                 'timestamp': latest.name.isoformat() if hasattr(latest.name, 'isoformat') else str(latest.name),
                 'filters': {
-                    'in_session': in_session,
-                    'vol_ok': vol_ok,
-                    'vol_ok2': vol_ok2,
-                    'cooling': cooling,
-                    'can_trade_today': can_trade_today,
-                    'bars_since_entry': bars_since_entry
+                    'in_session': bool(in_session),
+                    'vol_ok': bool(vol_ok),
+                    'vol_ok2': bool(vol_ok2),
+                    'cooling': bool(cooling),
+                    'can_trade_today': bool(can_trade_today),
+                    'bars_since_entry': int(bars_since_entry)
                 },
                 'indicators': {
                     'ema_fast': float(latest['ema_fast']) if pd.notna(latest['ema_fast']) else None,
