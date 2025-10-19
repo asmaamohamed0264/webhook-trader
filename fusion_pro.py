@@ -70,6 +70,18 @@ class FusionProStrategy:
         self.min_bars_gap = self.fusion_config.get('min_bars_gap', 3)
         self.max_trades_day = self.fusion_config.get('max_trades_day', 10)
         
+        # Trading session
+        self.trade_session_start = self.fusion_config.get('trade_session_start', '09:30')
+        self.trade_session_end = self.fusion_config.get('trade_session_end', '16:00')
+        
+        # HTF Trend Filter
+        self.use_htf_trend = self.fusion_config.get('use_htf_trend', True)
+        self.htf_timeframe = self.fusion_config.get('htf_timeframe', '60')
+        
+        # Position sizing
+        self.use_fixed_risk = self.fusion_config.get('use_fixed_risk', True)
+        self.fallback_pct = self.fusion_config.get('fallback_pct', 5.0)
+        
         # Cooldown
         self.use_cooldown = self.fusion_config.get('use_cooldown', True)
         self.cooldown_bars = self.fusion_config.get('cooldown_bars', 10)
@@ -86,6 +98,8 @@ class FusionProStrategy:
         self.prev_closed_trades = 0
         self.high_in_trade = None
         self.low_in_trade = None
+        self.last_trade_date = None
+        self.htf_data = {}  # Cache for HTF data
         
     def _init_alpaca_clients(self):
         """Initialize Alpaca API clients"""
@@ -219,6 +233,88 @@ class FusionProStrategy:
             logger.error(f"Failed to generate test data for {symbol}: {e}")
             return pd.DataFrame()
     
+    async def fetch_htf_data(self, symbol: str, htf_timeframe: str, limit: int = 50) -> pd.DataFrame:
+        """Fetch Higher Timeframe data for trend filtering"""
+        try:
+            if symbol in self.htf_data:
+                return self.htf_data[symbol]
+            
+            # Convert HTF timeframe
+            tf_map = {
+                '15': TimeFrame(15, 'minute'),
+                '30': TimeFrame(30, 'minute'),
+                '60': TimeFrame.Hour,
+                '240': TimeFrame(4, 'hour'),
+                '1D': TimeFrame.Day
+            }
+            
+            tf = tf_map.get(htf_timeframe, TimeFrame.Hour)
+            
+            # Calculate time range
+            end_time = datetime.now()
+            if htf_timeframe == '1D':
+                start_time = end_time - timedelta(days=limit)
+            elif htf_timeframe in ['60', '240']:
+                start_time = end_time - timedelta(hours=limit * 4)
+            else:
+                start_time = end_time - timedelta(minutes=limit * int(htf_timeframe))
+            
+            # Create request
+            request_params = StockBarsRequest(
+                symbol_or_symbols=[symbol],
+                timeframe=tf,
+                start=start_time,
+                end=end_time,
+                limit=limit
+            )
+            
+            # Fetch data
+            bars = self.data_client.get_stock_bars(request_params)
+            
+            # Convert to DataFrame
+            data = []
+            if symbol in bars.data and bars.data[symbol]:
+                for bar in bars.data[symbol]:
+                    data.append({
+                        'timestamp': bar.timestamp,
+                        'close': float(bar.close)
+                    })
+            
+            df = pd.DataFrame(data)
+            if not df.empty:
+                df.set_index('timestamp', inplace=True)
+                df.sort_index(inplace=True)
+                # Calculate HTF EMA200
+                df['ema200'] = ta.trend.EMAIndicator(df['close'], window=200).ema_indicator()
+                self.htf_data[symbol] = df
+                logger.info(f"Fetched {len(df)} HTF bars for {symbol}")
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"Failed to fetch HTF data for {symbol}: {e}")
+            return pd.DataFrame()
+    
+    def is_trading_session(self, current_time: datetime = None) -> bool:
+        """Check if current time is within trading session"""
+        if current_time is None:
+            current_time = datetime.now()
+        
+        try:
+            # Parse session times
+            start_hour, start_min = map(int, self.trade_session_start.split(':'))
+            end_hour, end_min = map(int, self.trade_session_end.split(':'))
+            
+            current_minutes = current_time.hour * 60 + current_time.minute
+            start_minutes = start_hour * 60 + start_min
+            end_minutes = end_hour * 60 + end_min
+            
+            return start_minutes <= current_minutes <= end_minutes
+            
+        except Exception as e:
+            logger.error(f"Error checking trading session: {e}")
+            return True  # Default to allow trading
+    
     def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """Calculate all technical indicators"""
         if df.empty:
@@ -256,8 +352,8 @@ class FusionProStrategy:
             logger.error(f"Failed to calculate indicators: {e}")
             return df
     
-    def analyze_signals(self, df: pd.DataFrame) -> Dict:
-        """Analyze market data and generate trading signals"""
+    async def analyze_signals(self, df: pd.DataFrame, symbol: str) -> Dict:
+        """Analyze market data and generate trading signals with advanced filters"""
         if df.empty or len(df) < max(self.ema_slow_len, self.macd_slow, self.rsi_len, self.adx_len):
             return {'signal': 'HOLD', 'reason': 'Insufficient data'}
         
@@ -266,11 +362,23 @@ class FusionProStrategy:
             latest = df.iloc[-1]
             prev = df.iloc[-2] if len(df) > 1 else latest
             
+            # Check trading session
+            in_session = self.is_trading_session()
+            
             # Trend analysis
             trend_up = (latest['close'] > latest['ema_fast'] and 
                        latest['ema_fast'] > latest['ema_slow'])
             trend_down = (latest['close'] < latest['ema_fast'] and 
                          latest['ema_fast'] < latest['ema_slow'])
+            
+            # HTF Trend Filter
+            if self.use_htf_trend:
+                htf_df = await self.fetch_htf_data(symbol, self.htf_timeframe)
+                if not htf_df.empty and 'ema200' in htf_df.columns:
+                    htf_ema200 = htf_df['ema200'].iloc[-1]
+                    if pd.notna(htf_ema200):
+                        trend_up = trend_up and (latest['close'] > htf_ema200)
+                        trend_down = trend_down and (latest['close'] < htf_ema200)
             
             # Momentum analysis
             mom_long = (latest['macd_hist'] > 0 and 
@@ -289,32 +397,64 @@ class FusionProStrategy:
             # Volatility filter
             vol_ok2 = latest['atr_pct'] >= self.min_atr_pct
             
-            # Check filters
-            filters_ok = vol_ok and vol_ok2
+            # Check all filters
+            filters_ok = vol_ok and vol_ok2 and in_session
+            
+            # Check cooldown
+            cooling = self.use_cooldown and (self.cooldown_left > 0)
+            
+            # Check daily trade limit
+            can_trade_today = self.trades_today < self.max_trades_day
+            
+            # Check minimum bars gap
+            bars_since_entry = 100000  # Default high value
+            if self.last_entry_bar is not None:
+                bars_since_entry = len(df) - self.last_entry_bar if self.last_entry_bar < len(df) else 100000
+            
+            can_trade_now = (filters_ok and not cooling and can_trade_today and 
+                           bars_since_entry >= self.min_bars_gap)
             
             # Generate signals
             signal = 'HOLD'
             reason = []
             
-            if trend_up and mom_long and filters_ok:
+            if can_trade_now and trend_up and mom_long:
                 signal = 'BUY'
-                reason = ['Trend up', 'Momentum long', 'Filters OK']
-            elif trend_down and mom_short and filters_ok:
+                reason = ['Trend up', 'Momentum long', 'All filters OK']
+            elif can_trade_now and trend_down and mom_short:
                 signal = 'SELL'
-                reason = ['Trend down', 'Momentum short', 'Filters OK']
+                reason = ['Trend down', 'Momentum short', 'All filters OK']
             else:
+                if not in_session:
+                    reason.append('Outside trading session')
+                if not vol_ok:
+                    reason.append('Volume filter failed')
+                if not vol_ok2:
+                    reason.append('Volatility filter failed')
+                if cooling:
+                    reason.append(f'Cooldown active ({self.cooldown_left} bars)')
+                if not can_trade_today:
+                    reason.append(f'Daily trade limit reached ({self.trades_today}/{self.max_trades_day})')
+                if bars_since_entry < self.min_bars_gap:
+                    reason.append(f'Min bars gap not met ({bars_since_entry}/{self.min_bars_gap})')
                 if not trend_up and not trend_down:
                     reason.append('No clear trend')
                 if not mom_long and not mom_short:
                     reason.append('Momentum not aligned')
-                if not filters_ok:
-                    reason.append('Filters failed')
             
             return {
                 'signal': signal,
                 'reason': ', '.join(reason),
                 'price': float(latest['close']),
                 'timestamp': latest.name.isoformat() if hasattr(latest.name, 'isoformat') else str(latest.name),
+                'filters': {
+                    'in_session': in_session,
+                    'vol_ok': vol_ok,
+                    'vol_ok2': vol_ok2,
+                    'cooling': cooling,
+                    'can_trade_today': can_trade_today,
+                    'bars_since_entry': bars_since_entry
+                },
                 'indicators': {
                     'ema_fast': float(latest['ema_fast']) if pd.notna(latest['ema_fast']) else None,
                     'ema_slow': float(latest['ema_slow']) if pd.notna(latest['ema_slow']) else None,
@@ -330,21 +470,27 @@ class FusionProStrategy:
             logger.error(f"Failed to analyze signals: {e}")
             return {'signal': 'HOLD', 'reason': f'Analysis error: {e}'}
     
-    def calculate_position_size(self, price: float, atr: float) -> int:
-        """Calculate position size based on risk management"""
+    def calculate_position_size(self, price: float, atr: float, current_equity: float = None) -> int:
+        """Calculate position size based on risk management with fallback"""
         try:
+            if current_equity is None:
+                current_equity = self.account_size
+            
             # Calculate stop distance
             stop_dist = atr * self.atr_mult_sl
             
-            # Calculate risk capital
-            risk_capital = self.account_size * (self.risk_pct / 100.0)
-            
-            # Calculate quantity
-            if stop_dist > 0:
+            if self.use_fixed_risk and stop_dist > 0:
+                # Fixed risk sizing
+                risk_capital = current_equity * (self.risk_pct / 100.0)
                 qty = risk_capital / stop_dist
-                return max(1, int(qty))  # Minimum 1 share
+                qty = max(1, int(qty))  # Minimum 1 share
+                
+                if qty > 0:
+                    return qty
             
-            return 1
+            # Fallback to percentage of equity
+            fallback_qty = current_equity * (self.fallback_pct / 100.0) / price
+            return max(1, int(fallback_qty))
             
         except Exception as e:
             logger.error(f"Failed to calculate position size: {e}")
@@ -431,7 +577,7 @@ class FusionProStrategy:
                         continue
                     
                     # Analyze signals
-                    signal_data = self.analyze_signals(df)
+                    signal_data = await self.analyze_signals(df, symbol)
                     signal_data['symbol'] = symbol
                     
                     # Execute signal if not HOLD

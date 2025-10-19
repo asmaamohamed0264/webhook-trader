@@ -258,7 +258,13 @@ def load_config():
         'min_bars_gap': int(os.getenv('FUSION_MIN_BARS_GAP', '3')),
         'max_trades_day': int(os.getenv('FUSION_MAX_TRADES_DAY', '10')),
         'use_cooldown': os.getenv('FUSION_USE_COOLDOWN', 'true').lower() == 'true',
-        'cooldown_bars': int(os.getenv('FUSION_COOLDOWN_BARS', '10'))
+        'cooldown_bars': int(os.getenv('FUSION_COOLDOWN_BARS', '10')),
+        'trade_session_start': os.getenv('FUSION_TRADE_SESSION_START', '09:30'),
+        'trade_session_end': os.getenv('FUSION_TRADE_SESSION_END', '16:00'),
+        'use_htf_trend': os.getenv('FUSION_USE_HTF_TREND', 'true').lower() == 'true',
+        'htf_timeframe': os.getenv('FUSION_HTF_TIMEFRAME', '60'),
+        'use_fixed_risk': os.getenv('FUSION_USE_FIXED_RISK', 'true').lower() == 'true',
+        'fallback_pct': float(os.getenv('FUSION_FALLBACK_PCT', '5.0'))
     }
     
     config['fusion_pro_bot'] = fusion_config
