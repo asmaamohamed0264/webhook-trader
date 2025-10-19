@@ -313,16 +313,16 @@ class FusionProStrategy:
             return {
                 'signal': signal,
                 'reason': ', '.join(reason),
-                'price': latest['close'],
-                'timestamp': latest.name,
+                'price': float(latest['close']),
+                'timestamp': latest.name.isoformat() if hasattr(latest.name, 'isoformat') else str(latest.name),
                 'indicators': {
-                    'ema_fast': latest['ema_fast'],
-                    'ema_slow': latest['ema_slow'],
-                    'macd_hist': latest['macd_hist'],
-                    'rsi': latest['rsi'],
-                    'adx': latest['adx'],
-                    'atr': latest['atr'],
-                    'atr_pct': latest['atr_pct']
+                    'ema_fast': float(latest['ema_fast']) if pd.notna(latest['ema_fast']) else None,
+                    'ema_slow': float(latest['ema_slow']) if pd.notna(latest['ema_slow']) else None,
+                    'macd_hist': float(latest['macd_hist']) if pd.notna(latest['macd_hist']) else None,
+                    'rsi': float(latest['rsi']) if pd.notna(latest['rsi']) else None,
+                    'adx': float(latest['adx']) if pd.notna(latest['adx']) else None,
+                    'atr': float(latest['atr']) if pd.notna(latest['atr']) else None,
+                    'atr_pct': float(latest['atr_pct']) if pd.notna(latest['atr_pct']) else None
                 }
             }
             
@@ -381,11 +381,11 @@ class FusionProStrategy:
             
             return {
                 'status': 'executed',
-                'order_id': order.id,
+                'order_id': str(order.id),
                 'symbol': self.symbol,
                 'side': signal,
-                'qty': qty,
-                'price': price,
+                'qty': int(qty),
+                'price': float(price),
                 'timestamp': datetime.now().isoformat()
             }
             
