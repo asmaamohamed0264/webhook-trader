@@ -35,17 +35,7 @@ For example if you have these two accounts:
 
 | Account Name | API Key | API Secret | Paper? |
 |--------------|---------|------------|---------|
-| Trading-Bot-1 | PK1A2B3C4D5E6F7G8H9I | SK9I8H7G6F5E4D3C2B1A | true |
-| Trading-Bot-2 | PK9H8G7F6E5D4C3B2A1 | SK1B2C3D4E5F6G7H8I9J | false |
-
-Then your environment variables would look like:
-
-```bash
-ALPACA_API_KEYS="PK1A2B3C4D5E6F7G8H9I,PK9H8G7F6E5D4C3B2A1"
-ALPACA_API_SECRETS="SK9I8H7G6F5E4D3C2B1A,SK1B2C3D4E5F6G7H8I9J"
-ALPACA_NAMES="Trading-Bot-1,Trading-Bot-2"
-ALPACA_PAPER="1,0" # 1 for true, 0 for false
-```
+Then your environment variables would 
 
 You should make the names something long, unique per account, and not easily guessable. TradingView doesn't support API keys or any other sort of authentication for the webhooks, so those names and the IP Whitelist are the only things that protect your accounts. For this reason I recommend creating UUIDs for the names. I used this script to generate the names:
 
